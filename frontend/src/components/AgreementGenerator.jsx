@@ -30,7 +30,7 @@ export default function AgreementGenerator({
           onChange={(event) => onConsentChange(event.target.checked)}
           type="checkbox"
         />
-        <span>I agree to send only this brief to OpenAI to generate a draft. I will not include confidential information.</span>
+        <span>I agree to send only this brief to generate an AI draft. I will not include confidential information.</span>
       </label>
       <div className="workflow-form-actions">
         <button

@@ -136,7 +136,7 @@ export async function generateAgreementDraft(req, res, next) {
 
     const brief = typeof req.body.brief === "string" ? req.body.brief.trim() : "";
     if (req.body.consent !== true) {
-      return res.status(400).json({ success: false, message: "Confirm that your agreement brief may be sent to OpenAI before generating a draft." });
+      return res.status(400).json({ success: false, message: "Confirm that your agreement brief may be sent to generate an AI draft." });
     }
     if (!brief || brief.length > 10000) {
       return res.status(400).json({ success: false, message: "The agreement brief must be between 1 and 10000 characters." });
@@ -152,29 +152,55 @@ export async function generateAgreementDraft(req, res, next) {
     }
 
     let response;
+    const isGemini = apiKey.startsWith("AQ.") || apiKey.startsWith("AIzaSy") || (process.env.AI_MODEL || "").includes("gemini");
+    const geminiModel = process.env.AI_MODEL && process.env.AI_MODEL.startsWith("gemini")
+      ? process.env.AI_MODEL
+      : "gemini-3.5-flash-lite";
+
     try {
-      response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json"
-        },
-        signal: AbortSignal.timeout(30000),
-        body: JSON.stringify({
-          model: process.env.AI_MODEL || "gpt-4o-mini",
-          response_format: { type: "json_object" },
-          messages: [
-            {
-              role: "system",
-              content: "Create a practical, plain-language freelance project agreement draft for human review, not legal advice. Return only a JSON object with a string property terms and an array of 3-10 concise string acceptanceCriteria. Include scope, deliverables, responsibilities, review/revision expectations, and payment terms only when supported by the project information. Do not invent amounts or dates."
-            },
-            {
-              role: "user",
-              content: brief
-            }
-          ]
-        })
-      });
+      if (isGemini) {
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          signal: AbortSignal.timeout(30000),
+          body: JSON.stringify({
+            generationConfig: { responseMimeType: "application/json" },
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `You are an assistant creating a practical, plain-language freelance project agreement draft for human review, not legal advice. Return ONLY a JSON object with a string property "terms" and an array of 3-10 concise strings "acceptanceCriteria". Include scope, deliverables, responsibilities, review/revision expectations, and payment terms only when supported by the project brief. Do not invent amounts or dates.\n\nProject Brief:\n${brief}`
+                  }
+                ]
+              }
+            ]
+          })
+        });
+      } else {
+        const aiEndpoint = process.env.AI_BASE_URL || "https://api.openai.com/v1/chat/completions";
+        response = await fetch(aiEndpoint, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json"
+          },
+          signal: AbortSignal.timeout(30000),
+          body: JSON.stringify({
+            model: process.env.AI_MODEL || "gpt-4o-mini",
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: "Create a practical, plain-language freelance project agreement draft for human review, not legal advice. Return only a JSON object with a string property terms and an array of 3-10 concise string acceptanceCriteria. Include scope, deliverables, responsibilities, review/revision expectations, and payment terms only when supported by the project information. Do not invent amounts or dates."
+              },
+              {
+                role: "user",
+                content: brief
+              }
+            ]
+          })
+        });
+      }
     } catch {
       return res.status(502).json({ success: false, message: "Could not reach the AI agreement service. Try again." });
     }
@@ -183,7 +209,10 @@ export async function generateAgreementDraft(req, res, next) {
     }
 
     const result = await response.json();
-    const content = result.choices?.[0]?.message?.content;
+    const content = isGemini
+      ? result.candidates?.[0]?.content?.parts?.[0]?.text
+      : result.choices?.[0]?.message?.content;
+
     let generated;
     try {
       generated = JSON.parse(content);
@@ -193,8 +222,21 @@ export async function generateAgreementDraft(req, res, next) {
     if (!generated || typeof generated !== "object" || Array.isArray(generated)) {
       return res.status(502).json({ success: false, message: "The AI service returned an invalid agreement draft." });
     }
-    const terms = typeof generated.terms === "string" ? generated.terms.trim() : "";
-    const acceptanceCriteria = parseCriteria(generated.acceptanceCriteria);
+
+    const rawTerms = generated.terms;
+    const terms = typeof rawTerms === "string"
+      ? rawTerms.trim()
+      : (rawTerms && typeof rawTerms === "object"
+          ? Object.entries(rawTerms)
+              .map(([k, v]) => `${k.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+              .join("\n\n")
+          : "");
+
+    const rawCriteria = Array.isArray(generated.acceptanceCriteria)
+      ? generated.acceptanceCriteria.map((item) => (typeof item === "string" ? item : (item?.description || item?.criteria || JSON.stringify(item))))
+      : [];
+    const acceptanceCriteria = parseCriteria(rawCriteria);
+
     if (!terms || terms.length > 20000 || !acceptanceCriteria || acceptanceCriteria.length < 1) {
       return res.status(502).json({ success: false, message: "The AI service returned an incomplete agreement draft." });
     }
