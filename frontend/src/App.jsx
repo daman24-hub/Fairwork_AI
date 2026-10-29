@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import api, { clearAuthToken, getAuthToken, saveAuthToken } from "./services/api.js";
+import AuthScreen from "./components/AuthScreen.jsx";
+import ProjectCard from "./components/ProjectCard.jsx";
+import ProjectDetailsDialog from "./components/ProjectDetailsDialog.jsx";
 
 export default function App() {
   const [mode, setMode] = useState("login");
@@ -22,6 +25,16 @@ export default function App() {
   const [projectDetailsError, setProjectDetailsError] = useState("");
   const [projectWorkflow, setProjectWorkflow] = useState(null);
   const [projectInvitations, setProjectInvitations] = useState([]);
+  const [projectIssues, setProjectIssues] = useState({ disputes: [], changeRequests: [] });
+  const [changeRequestDraft, setChangeRequestDraft] = useState({
+    description: "",
+    budgetRupees: "",
+    deadline: ""
+  });
+  const [disputeDraft, setDisputeDraft] = useState({ milestoneId: "", reason: "" });
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [submittingIssue, setSubmittingIssue] = useState(false);
+  const [respondingIssueId, setRespondingIssueId] = useState(null);
   const [invitationEmail, setInvitationEmail] = useState("");
   const [sendingInvitation, setSendingInvitation] = useState(false);
   const [cancellingInvitationId, setCancellingInvitationId] = useState(null);
@@ -32,6 +45,7 @@ export default function App() {
   const [agreementDraft, setAgreementDraft] = useState({ terms: "", criteria: "" });
   const [savingMilestone, setSavingMilestone] = useState(false);
   const [updatingMilestoneId, setUpdatingMilestoneId] = useState(null);
+  const [uploadingEvidenceId, setUploadingEvidenceId] = useState(null);
   const [milestoneDraft, setMilestoneDraft] = useState({
     title: "",
     budgetRupees: "",
@@ -203,12 +217,14 @@ export default function App() {
     setWorkflowMessage("");
     setProjectWorkflow(null);
     setProjectInvitations([]);
+    setProjectIssues({ disputes: [], changeRequests: [] });
     setInvitationEmail("");
 
-    const [projectResult, workflowResult, invitationsResult] = await Promise.allSettled([
+    const [projectResult, workflowResult, invitationsResult, issuesResult] = await Promise.allSettled([
       api.get(`/projects/${project._id}`),
       api.get(`/projects/${project._id}/workflow`),
-      api.get(`/projects/${project._id}/invitations`)
+      api.get(`/projects/${project._id}/invitations`),
+      api.get(`/projects/${project._id}/issues`)
     ]);
 
     if (projectResult.status === "fulfilled") {
@@ -239,6 +255,15 @@ export default function App() {
       setWorkflowError((current) => current || invitationsResult.reason.response?.data?.message ||
         "Could not load project invitations. Try again.");
     }
+    if (issuesResult.status === "fulfilled") {
+      setProjectIssues({
+        disputes: issuesResult.value.data.disputes,
+        changeRequests: issuesResult.value.data.changeRequests
+      });
+    } else {
+      setWorkflowError((current) => current || issuesResult.reason.response?.data?.message ||
+        "Could not load disputes and change requests. Try again.");
+    }
     setLoadingProjectDetails(false);
     setLoadingWorkflow(false);
   }
@@ -248,6 +273,7 @@ export default function App() {
     setProjectDetailsError("");
     setProjectWorkflow(null);
     setProjectInvitations([]);
+    setProjectIssues({ disputes: [], changeRequests: [] });
     setWorkflowError("");
     setWorkflowMessage("");
     setEditingMilestoneId(null);
@@ -294,6 +320,142 @@ export default function App() {
       );
     } finally {
       setCancellingInvitationId(null);
+    }
+  }
+
+  async function createChangeRequest(event) {
+    event.preventDefault();
+    if (!detailProject) return;
+    const proposedAmountMinor = budgetToPaise(changeRequestDraft.budgetRupees);
+    if (proposedAmountMinor === undefined) {
+      setWorkflowError("Enter a proposed budget with no more than two decimal places.");
+      return;
+    }
+
+    setSubmittingIssue(true);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const response = await api.post(`/projects/${detailProject._id}/change-requests`, {
+        description: changeRequestDraft.description.trim(),
+        ...(proposedAmountMinor !== null ? { proposedAmountMinor } : {}),
+        ...(changeRequestDraft.deadline ? { proposedDeadline: changeRequestDraft.deadline } : {})
+      });
+      setProjectIssues((current) => ({
+        ...current,
+        changeRequests: [response.data.changeRequest, ...current.changeRequests]
+      }));
+      setChangeRequestDraft({ description: "", budgetRupees: "", deadline: "" });
+      setWorkflowMessage("Change request sent to the other participant.");
+    } catch (requestError) {
+      setWorkflowError(
+        requestError.response?.data?.message || "Could not submit the change request."
+      );
+    } finally {
+      setSubmittingIssue(false);
+    }
+  }
+
+  async function updateChangeRequest(changeRequest, decision) {
+    if (!detailProject) return;
+    setRespondingIssueId(changeRequest._id);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const endpoint = decision === "withdraw"
+        ? `/projects/${detailProject._id}/change-requests/${changeRequest._id}/withdraw`
+        : `/projects/${detailProject._id}/change-requests/${changeRequest._id}/respond`;
+      const response = await api.post(endpoint, decision === "withdraw" ? {} : { decision });
+      setProjectIssues((current) => ({
+        ...current,
+        changeRequests: current.changeRequests.map((item) =>
+          item._id === changeRequest._id ? response.data.changeRequest : item
+        )
+      }));
+      if (response.data.project) {
+        setDetailProject(response.data.project);
+        setProjects((current) => current.map((item) =>
+          item._id === response.data.project._id ? response.data.project : item
+        ));
+      }
+      setWorkflowMessage(decision === "withdraw" ? "Change request withdrawn." : `Change request ${decision}.`);
+    } catch (requestError) {
+      setWorkflowError(
+        requestError.response?.data?.message || "Could not update the change request."
+      );
+    } finally {
+      setRespondingIssueId(null);
+    }
+  }
+
+  async function createDispute(event) {
+    event.preventDefault();
+    if (!detailProject) return;
+    setSubmittingIssue(true);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const response = await api.post(`/projects/${detailProject._id}/disputes`, {
+        milestoneId: disputeDraft.milestoneId,
+        reason: disputeDraft.reason.trim()
+      });
+      setProjectIssues((current) => ({
+        ...current,
+        disputes: [response.data.dispute, ...current.disputes]
+      }));
+      setProjectWorkflow((current) => ({
+        ...current,
+        milestones: current.milestones.map((milestone) =>
+          milestone._id === response.data.milestone._id ? response.data.milestone : milestone
+        )
+      }));
+      setDetailProject(response.data.project);
+      setProjects((current) => current.map((item) =>
+        item._id === response.data.project._id ? response.data.project : item
+      ));
+      setDisputeDraft({ milestoneId: "", reason: "" });
+      setWorkflowMessage("Dispute opened and recorded for both project participants.");
+    } catch (requestError) {
+      setWorkflowError(requestError.response?.data?.message || "Could not open the dispute.");
+    } finally {
+      setSubmittingIssue(false);
+    }
+  }
+
+  async function updateDispute(dispute, status) {
+    if (!detailProject) return;
+    setRespondingIssueId(dispute._id);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const response = await api.patch(`/projects/${detailProject._id}/disputes/${dispute._id}`, {
+        status,
+        resolutionNotes
+      });
+      setProjectIssues((current) => ({
+        ...current,
+        disputes: current.disputes.map((item) =>
+          item._id === dispute._id ? response.data.dispute : item
+        )
+      }));
+      setDetailProject(response.data.project);
+      setProjects((current) => current.map((item) =>
+        item._id === response.data.project._id ? response.data.project : item
+      ));
+      setProjectWorkflow((current) => ({
+        ...current,
+        milestones: current.milestones.map((milestone) =>
+          milestone._id === dispute.milestoneId
+            ? { ...milestone, status: status === "under_review" ? milestone.status : "in_progress" }
+            : milestone
+        )
+      }));
+      setResolutionNotes("");
+      setWorkflowMessage(status === "under_review" ? "Dispute moved to review." : "Dispute resolution recorded.");
+    } catch (requestError) {
+      setWorkflowError(requestError.response?.data?.message || "Could not update the dispute.");
+    } finally {
+      setRespondingIssueId(null);
     }
   }
 
@@ -617,6 +779,63 @@ export default function App() {
     }
   }
 
+  async function submitEvidence(event, milestone) {
+    event.preventDefault();
+    if (!detailProject) return;
+
+    const formElement = event.currentTarget;
+    const formData = new FormData(formElement);
+    setUploadingEvidenceId(milestone._id);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const response = await api.post(
+        `/projects/${detailProject._id}/milestones/${milestone._id}/evidence`,
+        formData
+      );
+      setProjectWorkflow((current) => ({
+        ...current,
+        milestones: current.milestones.map((item) =>
+          item._id === milestone._id
+            ? {
+              ...item,
+              ...response.data.milestone,
+              evidence: [response.data.evidence, ...(item.evidence || [])]
+            }
+            : item
+        )
+      }));
+      setWorkflowMessage("Delivery evidence submitted for client review.");
+      formElement.reset();
+    } catch (requestError) {
+      setWorkflowError(
+        requestError.response?.data?.message || "Could not submit evidence. Try again."
+      );
+    } finally {
+      setUploadingEvidenceId(null);
+    }
+  }
+
+  async function downloadEvidence(evidence) {
+    if (!evidence.fileUrl) return;
+    setWorkflowError("");
+    try {
+      const response = await api.get(evidence.fileUrl, { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = evidence.fileName || "evidence";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setWorkflowError(
+        requestError.response?.data?.message || "Could not download this evidence file."
+      );
+    }
+  }
+
   if (checkingSession) {
     return (
       <main className="auth-page">
@@ -810,589 +1029,89 @@ export default function App() {
                     : project.freelancerId === user.id;
 
                   return (
-                  <article className="project-card" key={project._id}>
-                    <div className="project-card-main">
-                      <div className="project-card-title">
-                        <span className="project-card-icon" aria-hidden="true">◈</span>
-                        <div>
-                          <h3>{project.title}</h3>
-                          <span className={`project-status status-${project.status}`}>{project.status.replaceAll("_", " ")}</span>
-                        </div>
-                      </div>
-                      {project.description && <p className="project-card-description">{project.description}</p>}
-                    </div>
-                    <div className="project-card-meta">
-                      <div><span>Budget</span><strong>{formatBudget(project.budgetPaise)}</strong></div>
-                      <div><span>Deadline</span><strong>{formatDeadline(project.deadline)}</strong></div>
-                    </div>
-                    <div className="project-card-actions">
-                      <button className="button button-quiet" onClick={() => openProjectDetails(project)}>Details</button>
-                      <button className="button button-quiet" onClick={() => openEditProject(project)}>Edit</button>
-                      <button
-                        className="button button-danger"
-                        disabled={deletingProjectId === project._id || !isProjectCreator}
-                        onClick={() => handleDeleteProject(project)}
-                        title={!isProjectCreator ? "Only the project creator can delete it." : undefined}
-                      >
-                        {deletingProjectId === project._id ? "Deleting…" : "Delete"}
-                      </button>
-                    </div>
-                  </article>
+                    <ProjectCard
+                      formatBudget={formatBudget}
+                      formatDeadline={formatDeadline}
+                      isDeleting={deletingProjectId === project._id}
+                      isProjectCreator={isProjectCreator}
+                      key={project._id}
+                      onDelete={() => handleDeleteProject(project)}
+                      onDetails={() => openProjectDetails(project)}
+                      onEdit={() => openEditProject(project)}
+                      project={project}
+                    />
                   );
                 })}
               </div>
             )}
           </section>
         </div>
-        {detailProject && (
-          <div
-            className="dialog-backdrop"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) closeProjectDetails();
-            }}
-          >
-            <section
-              aria-label="Project details"
-              aria-modal="true"
-              className="project-details-dialog"
-              role="dialog"
-            >
-              <div className="details-heading">
-                <div>
-                  <p className="eyebrow">PROJECT DETAILS</p>
-                  <span className={`project-status status-${detailProject.status}`}>
-                    {detailProject.status.replaceAll("_", " ")}
-                  </span>
-                </div>
-                <button
-                  aria-label="Close project details"
-                  className="icon-button"
-                  onClick={closeProjectDetails}
-                  type="button"
-                >
-                  ×
-                </button>
-              </div>
-
-              {loadingProjectDetails ? (
-                <div className="details-loading" role="status">Loading project details…</div>
-              ) : projectDetailsError ? (
-                <div className="form-error details-error" role="alert">
-                  <span>{projectDetailsError}</span>
-                  <button className="text-button" onClick={() => openProjectDetails(detailProject)} type="button">
-                    Retry
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <h2 id="project-details-title">{detailProject.title}</h2>
-                  <p className="details-description">
-                    {detailProject.description || "No description has been added to this project."}
-                  </p>
-                  <div className="details-grid">
-                    <div className="details-item">
-                      <span>Budget</span>
-                      <strong>{formatBudget(detailProject.budgetPaise)}</strong>
-                    </div>
-                    <div className="details-item">
-                      <span>Deadline</span>
-                      <strong>{formatDeadline(detailProject.deadline)}</strong>
-                    </div>
-                    <div className="details-item">
-                      <span>Created</span>
-                      <strong>{formatDeadline(detailProject.createdAt)}</strong>
-                    </div>
-                    <div className="details-item">
-                      <span>Last updated</span>
-                      <strong>{formatDeadline(detailProject.updatedAt)}</strong>
-                    </div>
-                  </div>
-                  {(() => {
-                    const isProjectCreator = user.role === "client"
-                      ? detailProject.clientId === user.id
-                      : detailProject.freelancerId === user.id;
-                    const counterpartId = user.role === "client"
-                      ? detailProject.freelancerId
-                      : detailProject.clientId;
-                    const pendingInvitation = projectInvitations.find((item) => item.status === "pending");
-                    const counterpartRole = user.role === "client" ? "freelancer" : "client";
-
-                    return (
-                      <section className="invitation-section" aria-labelledby="invite-heading">
-                        <div className="workflow-section-heading">
-                          <div>
-                            <p className="eyebrow">COLLABORATION</p>
-                            <h3 id="invite-heading">Project participant</h3>
-                          </div>
-                          {counterpartId ? (
-                            <span className="project-status status-active">Joined</span>
-                          ) : pendingInvitation ? (
-                            <span className="project-status">Invitation pending</span>
-                          ) : (
-                            <span className="project-status">Not invited</span>
-                          )}
-                        </div>
-                        {counterpartId ? (
-                          <p className="workflow-note">The {counterpartRole} has joined this project.</p>
-                        ) : pendingInvitation ? (
-                          <div className="outgoing-invitation">
-                            <p>
-                              Waiting for {pendingInvitation.invitee?.email ||
-                                pendingInvitation.inviteeId?.email || "the invited account"} to accept.
-                            </p>
-                            {isProjectCreator && (
-                              <button
-                                className="button button-quiet"
-                                disabled={cancellingInvitationId === pendingInvitation._id}
-                                onClick={() => cancelProjectInvitation(pendingInvitation)}
-                                type="button"
-                              >
-                                {cancellingInvitationId === pendingInvitation._id ? "Cancelling…" : "Cancel invitation"}
-                              </button>
-                            )}
-                          </div>
-                        ) : isProjectCreator ? (
-                          <form className="invite-form" onSubmit={sendProjectInvitation}>
-                            <label className="field-label" htmlFor="invite-email">
-                              Invite a registered {counterpartRole}
-                            </label>
-                            <div className="invite-input-row">
-                              <input
-                                autoComplete="email"
-                                className="form-input"
-                                id="invite-email"
-                                onChange={(event) => setInvitationEmail(event.target.value)}
-                                placeholder="their account email"
-                                required
-                                type="email"
-                                value={invitationEmail}
-                              />
-                              <button className="button button-primary" disabled={sendingInvitation} type="submit">
-                                {sendingInvitation ? "Sending…" : "Send invite"}
-                              </button>
-                            </div>
-                          </form>
-                        ) : (
-                          <p className="workflow-note">Waiting for the project creator to invite a {counterpartRole}.</p>
-                        )}
-                      </section>
-                    );
-                  })()}
-                  <div className="workflow-sections">
-                    {workflowMessage && <p className="project-message" role="status">{workflowMessage}</p>}
-                    {workflowError && <p className="form-error workflow-error" role="alert">{workflowError}</p>}
-
-                    <section className="workflow-section" aria-labelledby="agreement-heading">
-                      <div className="workflow-section-heading">
-                        <div>
-                          <p className="eyebrow">SHARED TERMS</p>
-                          <h3 id="agreement-heading">Agreement</h3>
-                        </div>
-                        {projectWorkflow?.agreement && (
-                          <span className={`project-status status-${projectWorkflow.agreement.status}`}>
-                            {projectWorkflow.agreement.status.replaceAll("_", " ")}
-                          </span>
-                        )}
-                      </div>
-
-                      {loadingWorkflow ? (
-                        <p className="workflow-loading" role="status">Loading agreement…</p>
-                      ) : projectWorkflow?.agreement?.status === "pending_approval" ? (
-                        <div className="agreement-review">
-                          <p className="agreement-terms">{projectWorkflow.agreement.terms}</p>
-                          {projectWorkflow.agreement.acceptanceCriteria?.length > 0 && (
-                            <ul className="criteria-list">
-                              {projectWorkflow.agreement.acceptanceCriteria.map((criterion, index) => (
-                                <li key={`${index}-${criterion}`}>{criterion}</li>
-                              ))}
-                            </ul>
-                          )}
-                          <div className="approval-status">
-                            <span className={projectWorkflow.agreement.clientApprovedAt ? "approval-done" : ""}>
-                              Client {projectWorkflow.agreement.clientApprovedAt ? "approved" : "approval pending"}
-                            </span>
-                            <span className={projectWorkflow.agreement.freelancerApprovedAt ? "approval-done" : ""}>
-                              Freelancer {projectWorkflow.agreement.freelancerApprovedAt ? "approved" : "approval pending"}
-                            </span>
-                          </div>
-                          {!projectWorkflow.agreement[user.role === "client" ? "clientApprovedAt" : "freelancerApprovedAt"] && (
-                            <button
-                              className="button button-primary workflow-action"
-                              disabled={savingAgreement}
-                              onClick={approveAgreement}
-                              type="button"
-                            >
-                              {savingAgreement ? "Saving…" : "Approve agreement"}
-                            </button>
-                          )}
-                        </div>
-                      ) : projectWorkflow?.agreement?.status === "approved" ? (
-                        <div className="agreement-review">
-                          <p className="agreement-terms">{projectWorkflow.agreement.terms}</p>
-                          {projectWorkflow.agreement.acceptanceCriteria?.length > 0 && (
-                            <ul className="criteria-list">
-                              {projectWorkflow.agreement.acceptanceCriteria.map((criterion, index) => (
-                                <li key={`${index}-${criterion}`}>{criterion}</li>
-                              ))}
-                            </ul>
-                          )}
-                          <p className="workflow-note">Approved by both parties.</p>
-                        </div>
-                      ) : (
-                        <form className="workflow-form" onSubmit={saveAgreement}>
-                          <label className="field-label" htmlFor="agreement-terms">Agreement terms</label>
-                          <textarea
-                            className="form-input workflow-textarea"
-                            id="agreement-terms"
-                            maxLength={20000}
-                            name="terms"
-                            onChange={updateAgreementField}
-                            placeholder="Describe the agreed work, scope, and responsibilities."
-                            required
-                            rows={4}
-                            value={agreementDraft.terms}
-                          />
-                          <label className="field-label" htmlFor="agreement-criteria">Acceptance criteria <span>(one per line)</span></label>
-                          <textarea
-                            className="form-input workflow-textarea"
-                            id="agreement-criteria"
-                            maxLength={15000}
-                            name="criteria"
-                            onChange={updateAgreementField}
-                            placeholder={"Homepage matches approved design\nMobile layout is responsive"}
-                            rows={3}
-                            value={agreementDraft.criteria}
-                          />
-                          <div className="workflow-form-actions">
-                            <button className="button button-primary" disabled={savingAgreement} type="submit">
-                              {savingAgreement ? "Saving…" : projectWorkflow?.agreement ? "Save draft" : "Create agreement draft"}
-                            </button>
-                            {projectWorkflow?.agreement?.status === "draft" && (
-                              <button
-                                className="button button-quiet"
-                                disabled={savingAgreement}
-                                onClick={submitAgreement}
-                                type="button"
-                              >
-                                Submit for approval
-                              </button>
-                            )}
-                          </div>
-                        </form>
-                      )}
-                    </section>
-
-                    <section className="workflow-section" aria-labelledby="milestones-heading">
-                      <div className="workflow-section-heading">
-                        <div>
-                          <p className="eyebrow">DELIVERABLES</p>
-                          <h3 id="milestones-heading">Milestones</h3>
-                        </div>
-                        <span className="loading-label">
-                          {projectWorkflow?.milestones?.length || 0} total
-                        </span>
-                      </div>
-
-                      {loadingWorkflow ? (
-                        <p className="workflow-loading" role="status">Loading milestones…</p>
-                      ) : projectWorkflow?.milestones?.length ? (
-                        <div className="workflow-milestone-list">
-                          {projectWorkflow.milestones.map((milestone) => {
-                            const nextStatuses = user.role === "freelancer"
-                              ? {
-                                pending: ["in_progress"],
-                                in_progress: ["submitted"],
-                                changes_requested: ["submitted"]
-                              }[milestone.status] || []
-                              : milestone.status === "submitted" ? ["approved", "changes_requested"] : [];
-                            const statusLabels = {
-                              in_progress: "Start work",
-                              submitted: "Submit work",
-                              approved: "Approve",
-                              changes_requested: "Request changes"
-                            };
-
-                            return (
-                              <article className="workflow-milestone" key={milestone._id}>
-                                <div className="workflow-milestone-top">
-                                  <div>
-                                    <h4>{milestone.title}</h4>
-                                    <span className={`project-status status-${milestone.status}`}>
-                                      {milestone.status.replaceAll("_", " ")}
-                                    </span>
-                                  </div>
-                                  <strong>{formatBudget(milestone.amountMinor)}</strong>
-                                </div>
-                                <div className="workflow-milestone-meta">
-                                  <span>{formatDeadline(milestone.deadline)}</span>
-                                  {milestone.acceptanceCriteria?.length > 0 && (
-                                    <ul className="criteria-list">
-                                      {milestone.acceptanceCriteria.map((criterion, index) => (
-                                        <li key={`${index}-${criterion}`}>{criterion}</li>
-                                      ))}
-                                    </ul>
-                                  )}
-                                </div>
-                                <div className="workflow-milestone-actions">
-                                  {milestone.status === "pending" && (
-                                    <button
-                                      className="button button-quiet"
-                                      disabled={savingMilestone || updatingMilestoneId === milestone._id}
-                                      onClick={() => editMilestone(milestone)}
-                                      type="button"
-                                    >
-                                      Edit
-                                    </button>
-                                  )}
-                                  {nextStatuses.map((status) => (
-                                    <button
-                                      className={status === "changes_requested" ? "button button-quiet" : "button button-primary"}
-                                      disabled={updatingMilestoneId === milestone._id}
-                                      key={status}
-                                      onClick={() => changeMilestoneStatus(milestone, status)}
-                                      type="button"
-                                    >
-                                      {updatingMilestoneId === milestone._id ? "Updating…" : statusLabels[status]}
-                                    </button>
-                                  ))}
-                                </div>
-                              </article>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="workflow-note">No milestones yet. Add the first deliverable below.</p>
-                      )}
-
-                      <form className="workflow-form milestone-form" onSubmit={saveMilestone}>
-                        <h4>{editingMilestoneId ? "Edit milestone" : "Add a milestone"}</h4>
-                        <div className="project-fields">
-                          <div className="project-field project-field-wide">
-                            <label className="field-label" htmlFor="milestone-title">Milestone title</label>
-                            <input
-                              className="form-input"
-                              id="milestone-title"
-                              maxLength={160}
-                              onChange={(event) => setMilestoneDraft((current) => ({ ...current, title: event.target.value }))}
-                              placeholder="e.g. Initial design delivery"
-                              required
-                              value={milestoneDraft.title}
-                            />
-                          </div>
-                          <div className="project-field">
-                            <label className="field-label" htmlFor="milestone-amount">Amount <span>(INR)</span></label>
-                            <div className="currency-input">
-                              <span aria-hidden="true">₹</span>
-                              <input
-                                className="form-input"
-                                id="milestone-amount"
-                                inputMode="decimal"
-                                onChange={(event) => setMilestoneDraft((current) => ({ ...current, budgetRupees: event.target.value }))}
-                                placeholder="0.00"
-                                required
-                                value={milestoneDraft.budgetRupees}
-                              />
-                            </div>
-                          </div>
-                          <div className="project-field">
-                            <label className="field-label" htmlFor="milestone-deadline">Deadline <span>(optional)</span></label>
-                            <input
-                              className="form-input"
-                              id="milestone-deadline"
-                              onChange={(event) => setMilestoneDraft((current) => ({ ...current, deadline: event.target.value }))}
-                              type="date"
-                              value={milestoneDraft.deadline}
-                            />
-                          </div>
-                          <div className="project-field project-field-wide">
-                            <label className="field-label" htmlFor="milestone-criteria">Acceptance criteria <span>(one per line)</span></label>
-                            <textarea
-                              className="form-input workflow-textarea"
-                              id="milestone-criteria"
-                              maxLength={15000}
-                              onChange={(event) => setMilestoneDraft((current) => ({ ...current, criteria: event.target.value }))}
-                              placeholder="Describe how this deliverable will be reviewed."
-                              rows={2}
-                              value={milestoneDraft.criteria}
-                            />
-                          </div>
-                        </div>
-                        <div className="workflow-form-actions">
-                          {editingMilestoneId && (
-                            <button className="button button-quiet" onClick={resetMilestoneForm} type="button">Cancel edit</button>
-                          )}
-                          <button className="button button-primary" disabled={savingMilestone} type="submit">
-                            {savingMilestone ? "Saving…" : editingMilestoneId ? "Save milestone" : "Add milestone"}
-                          </button>
-                        </div>
-                      </form>
-                    </section>
-                  </div>
-                  <div className="details-actions">
-                    <button className="button button-quiet" onClick={closeProjectDetails} type="button">Close</button>
-                    <button
-                      className="button button-primary"
-                      onClick={() => {
-                        openEditProject(detailProject);
-                        closeProjectDetails();
-                      }}
-                      type="button"
-                    >
-                      Edit project
-                    </button>
-                  </div>
-                </>
-              )}
-            </section>
-          </div>
-        )}
+        <ProjectDetailsDialog {...{
+          detailProject,
+          closeProjectDetails,
+          loadingProjectDetails,
+          projectDetailsError,
+          openProjectDetails,
+          formatBudget,
+          formatDeadline,
+          user,
+          projectInvitations,
+          cancellingInvitationId,
+          cancelProjectInvitation,
+          sendingInvitation,
+          sendProjectInvitation,
+          invitationEmail,
+          setInvitationEmail,
+          workflowMessage,
+          workflowError,
+          projectWorkflow,
+          loadingWorkflow,
+          savingAgreement,
+          approveAgreement,
+          agreementDraft,
+          updateAgreementField,
+          saveAgreement,
+          submitAgreement,
+          uploadingEvidenceId,
+          downloadEvidence,
+          submitEvidence,
+          savingMilestone,
+          updatingMilestoneId,
+          editMilestone,
+          changeMilestoneStatus,
+          milestoneDraft,
+          setMilestoneDraft,
+          editingMilestoneId,
+          resetMilestoneForm,
+          saveMilestone,
+          projectIssues,
+          changeRequestDraft,
+          setChangeRequestDraft,
+          submittingIssue,
+          createChangeRequest,
+          respondingIssueId,
+          updateChangeRequest,
+          disputeDraft,
+          setDisputeDraft,
+          createDispute,
+          resolutionNotes,
+          setResolutionNotes,
+          updateDispute,
+          openEditProject
+        }} />
       </main>
     );
   }
 
-  const isRegistering = mode === "register";
-
   return (
-    <main className="auth-page">
-      <header className="topbar">
-        <a className="brand" href="/">FairWork<span>AI</span></a>
-        <span className="topbar-note">Freelance work, with clarity.</span>
-      </header>
-
-      <section className="auth-layout">
-        <div className="auth-intro">
-          <p className="eyebrow">AGREEMENT · MILESTONES · TRUST</p>
-          <h1>Good work deserves <span>fair agreements.</span></h1>
-          <p className="intro-copy">
-            Make expectations clear, keep project details in one place, and build better working relationships.
-          </p>
-          <div className="trust-note">
-            <span className="trust-icon" aria-hidden="true">✦</span>
-            <p>Clear terms. Shared expectations. Better freelance work.</p>
-          </div>
-        </div>
-
-        <section className="auth-card" aria-labelledby="form-title">
-          <div className="auth-tabs" role="tablist" aria-label="Account options">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!isRegistering}
-              className={`auth-tab${!isRegistering ? " is-active" : ""}`}
-              onClick={() => switchMode("login")}
-            >
-              Log in
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={isRegistering}
-              className={`auth-tab${isRegistering ? " is-active" : ""}`}
-              onClick={() => switchMode("register")}
-            >
-              Create account
-            </button>
-          </div>
-
-          <div className="form-heading">
-            <p className="eyebrow">{isRegistering ? "GET STARTED" : "WELCOME BACK"}</p>
-            <h2 id="form-title">{isRegistering ? "Create your account" : "Log in to FairWork"}</h2>
-            <p>{isRegistering ? "Choose how you’ll use FairWork." : "Enter your details to continue."}</p>
-          </div>
-
-          <form onSubmit={handleSubmit}>
-            {isRegistering && (
-              <>
-                <label className="field-label" htmlFor="name">Full name</label>
-                <input
-                  autoComplete="name"
-                  className="form-input"
-                  id="name"
-                  maxLength={100}
-                  name="name"
-                  onChange={updateField}
-                  placeholder="Your name"
-                  required
-                  value={form.name}
-                />
-              </>
-            )}
-
-            <label className="field-label" htmlFor="email">Email address</label>
-            <input
-              autoComplete="email"
-              className="form-input"
-              id="email"
-              name="email"
-              onChange={updateField}
-              placeholder="you@example.com"
-              required
-              type="email"
-              value={form.email}
-            />
-
-            <label className="field-label" htmlFor="password">Password</label>
-            <input
-              autoComplete={isRegistering ? "new-password" : "current-password"}
-              className="form-input"
-              id="password"
-              minLength={8}
-              name="password"
-              onChange={updateField}
-              placeholder={isRegistering ? "At least 8 characters" : "Your password"}
-              required
-              type="password"
-              value={form.password}
-            />
-
-            {isRegistering && (
-              <fieldset className="role-picker">
-                <legend>I’m joining as a</legend>
-                <label className={`role-option${form.role === "client" ? " is-selected" : ""}`}>
-                  <input
-                    checked={form.role === "client"}
-                    name="role"
-                    onChange={updateField}
-                    type="radio"
-                    value="client"
-                  />
-                  <span className="role-symbol" aria-hidden="true">◈</span>
-                  <span><strong>Client</strong><small>Hiring for a project</small></span>
-                </label>
-                <label className={`role-option${form.role === "freelancer" ? " is-selected" : ""}`}>
-                  <input
-                    checked={form.role === "freelancer"}
-                    name="role"
-                    onChange={updateField}
-                    type="radio"
-                    value="freelancer"
-                  />
-                  <span className="role-symbol" aria-hidden="true">✳</span>
-                  <span><strong>Freelancer</strong><small>Working on projects</small></span>
-                </label>
-              </fieldset>
-            )}
-
-            {error && <p className="form-error" role="alert">{error}</p>}
-
-            <button className="button button-primary submit-button" disabled={submitting} type="submit">
-              {submitting ? "Please wait…" : isRegistering ? "Create account" : "Log in"}
-            </button>
-          </form>
-
-          <p className="switch-prompt">
-            {isRegistering ? "Already have an account?" : "New to FairWork?"}{" "}
-            <button
-              className="text-button"
-              onClick={() => switchMode(isRegistering ? "login" : "register")}
-              type="button"
-            >
-              {isRegistering ? "Log in" : "Create an account"}
-            </button>
-          </p>
-        </section>
-      </section>
-      <footer className="page-footer">Built for fair, transparent freelance work.</footer>
-    </main>
+    <AuthScreen
+      error={error}
+      form={form}
+      mode={mode}
+      onFieldChange={updateField}
+      onModeChange={switchMode}
+      onSubmit={handleSubmit}
+      submitting={submitting}
+    />
   );
 }

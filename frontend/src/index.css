@@ -23,7 +23,9 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
 }
 
@@ -1039,6 +1041,100 @@ a {
   margin-top: 25px;
 }
 
+.issue-section {
+  margin-top: 21px;
+  padding-top: 21px;
+  border-top: 1px solid #edf0ea;
+}
+
+.issue-section > .workflow-form {
+  margin-bottom: 12px;
+}
+
+.issue-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.issue-card {
+  padding: 14px;
+  border: 1px solid #e8ede5;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.issue-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.issue-card-heading > span:last-child {
+  color: #929990;
+  font-size: 0.68rem;
+  text-align: right;
+}
+
+.issue-card > p {
+  margin: 11px 0 0;
+  color: #626d63;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.issue-proposal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 10px;
+  color: #6f7a70;
+  font-size: 0.72rem;
+}
+
+.issue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.issue-actions .button,
+.dispute-response > .button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.72rem;
+}
+
+.dispute-response {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0ea;
+}
+
+.dispute-response .field-label {
+  margin: 4px 0 0;
+}
+
+.resolution-notes {
+  padding: 10px;
+  border-radius: 8px;
+  background: #f5f7f2;
+}
+
+.issue-evidence-count {
+  display: block;
+  margin-top: 9px;
+  color: #788078;
+  font-size: 0.7rem;
+}
+
 .invitation-section {
   margin-top: 21px;
   padding: 18px;
@@ -1256,6 +1352,81 @@ a {
 
 .workflow-milestone-meta .criteria-list {
   margin-top: 8px;
+  font-size: 0.73rem;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.evidence-list h5 {
+  margin: 0;
+  color: #626d63;
+  font-size: 0.74rem;
+}
+
+.evidence-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid #edf0ea;
+  border-radius: 9px;
+  background: #fbfcf9;
+}
+
+.evidence-item p {
+  margin: 0;
+  color: #5f6a60;
+  font-size: 0.77rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.evidence-item span {
+  display: block;
+  margin-top: 5px;
+  color: #929990;
+  font-size: 0.67rem;
+}
+
+.evidence-item .text-button {
+  max-width: 46%;
+  font-size: 0.72rem;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.evidence-form {
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px dashed #dce5d8;
+  border-radius: 10px;
+  background: #fbfcf9;
+}
+
+.evidence-form .field-label {
+  margin-top: 8px;
+}
+
+.evidence-form .field-label span {
+  color: #929990;
+  font-weight: 400;
+}
+
+.evidence-file-input {
+  min-height: 43px;
+  padding: 8px;
+  color: #69736b;
+  font-size: 0.73rem;
+}
+
+.evidence-submit {
+  min-height: 36px;
+  margin-top: 11px;
   font-size: 0.73rem;
 }
 

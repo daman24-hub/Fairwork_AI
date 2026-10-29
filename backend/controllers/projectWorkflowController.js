@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import Agreement from "../models/Agreement.js";
+import Dispute from "../models/Dispute.js";
+import Evidence from "../models/Evidence.js";
 import Milestone from "../models/Milestone.js";
 import Project from "../models/Project.js";
 
@@ -35,7 +37,27 @@ export async function getProjectWorkflow(req, res, next) {
       Milestone.find({ projectId: project._id }).sort({ createdAt: 1 })
     ]);
 
-    return res.json({ success: true, agreement, milestones });
+    const evidence = await Evidence.find({
+      milestoneId: { $in: milestones.map((milestone) => milestone._id) }
+    })
+      .populate("submittedBy", "name role")
+      .sort({ createdAt: -1 });
+    const evidenceByMilestone = new Map();
+    for (const item of evidence) {
+      const key = String(item.milestoneId);
+      const items = evidenceByMilestone.get(key) || [];
+      items.push(item);
+      evidenceByMilestone.set(key, items);
+    }
+
+    return res.json({
+      success: true,
+      agreement,
+      milestones: milestones.map((milestone) => ({
+        ...milestone.toObject(),
+        evidence: evidenceByMilestone.get(String(milestone._id)) || []
+      }))
+    });
   } catch (error) {
     return next(error);
   }
@@ -300,8 +322,23 @@ export async function updateMilestoneStatus(req, res, next) {
     if (!milestone) return res.status(404).json({ success: false, message: "Milestone not found." });
 
     const nextStatus = req.body.status;
+    if (milestone.status === "disputed") {
+      const unresolvedDispute = await Dispute.exists({
+        milestoneId: milestone._id,
+        status: { $in: ["open", "under_review"] }
+      });
+      if (unresolvedDispute) {
+        return res.status(409).json({ success: false, message: "Resolve the dispute before changing this milestone status." });
+      }
+    }
+
     const transitions = req.user.role === "freelancer"
-      ? { pending: ["in_progress"], in_progress: ["submitted"], changes_requested: ["submitted"] }
+      ? {
+        pending: ["in_progress"],
+        in_progress: ["submitted"],
+        changes_requested: ["submitted"],
+        disputed: ["in_progress", "changes_requested"]
+      }
       : { submitted: ["approved", "changes_requested"] };
 
     if (!transitions[milestone.status]?.includes(nextStatus)) {

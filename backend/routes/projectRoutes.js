@@ -24,6 +24,20 @@ import {
   listProjectInvitations,
   respondToProjectInvitation
 } from "../controllers/projectInvitationController.js";
+import {
+  downloadEvidenceFile,
+  listMilestoneEvidence,
+  submitMilestoneEvidence
+} from "../controllers/evidenceController.js";
+import { handleEvidenceUpload } from "../middleware/evidenceUpload.js";
+import {
+  createChangeRequest,
+  createDispute,
+  listProjectIssues,
+  respondToChangeRequest,
+  updateDispute,
+  withdrawChangeRequest
+} from "../controllers/projectIssuesController.js";
 
 const router = Router();
 router.use(protect, authorizeRoles("client", "freelancer"));
@@ -45,4 +59,13 @@ router.post("/:projectId/agreements/:agreementId/approve", approveAgreement);
 router.post("/:projectId/milestones", createMilestone);
 router.patch("/:projectId/milestones/:milestoneId", updateMilestone);
 router.patch("/:projectId/milestones/:milestoneId/status", updateMilestoneStatus);
+router.get("/:projectId/milestones/:milestoneId/evidence", listMilestoneEvidence);
+router.post("/:projectId/milestones/:milestoneId/evidence", handleEvidenceUpload, submitMilestoneEvidence);
+router.get("/:projectId/milestones/:milestoneId/evidence/:evidenceId/file", downloadEvidenceFile);
+router.get("/:projectId/issues", listProjectIssues);
+router.post("/:projectId/change-requests", createChangeRequest);
+router.post("/:projectId/change-requests/:changeRequestId/respond", respondToChangeRequest);
+router.post("/:projectId/change-requests/:changeRequestId/withdraw", withdrawChangeRequest);
+router.post("/:projectId/disputes", createDispute);
+router.patch("/:projectId/disputes/:disputeId", updateDispute);
 export default router;

@@ -39,10 +39,23 @@ The backend currently provides:
 - Project budgets as whole-number `budgetPaise` values and optional ISO-8601 `deadline` values
 - Project invitations for adding one registered participant in the opposite role
 - Project agreement drafts, submission, and approval, plus milestone creation and status updates
+- Milestone evidence submissions with protected downloads for project participants; files are limited to 10 MB and PDF, TXT, PNG, JPG, or WEBP
+- Project change requests that the other participant can accept or reject; accepted budget and deadline proposals update the project
+- Milestone disputes that move from open to under review before either participant can resolve or close them
 
 Send project API requests with `Authorization: Bearer <token>`. Users can access only their own projects; only the project's creator can delete it.
 Agreement approval becomes final only after both project roles approve. Milestones store amounts as whole-number paise; freelancers can advance delivery and clients can approve submitted work or request changes.
 Project creators can invite a registered account using `POST /api/projects/:projectId/invitations` with `{ "email": "..." }`. Recipients can list invitations at `GET /api/projects/invitations/pending`, then accept or decline using `POST /api/projects/invitations/:invitationId/accept` or `/decline`. Only the invited account can respond; acceptance assigns the counterpart role on the project.
+
+Freelancers assigned to a project can submit delivery notes or evidence files for milestones in progress. Clients can review and request changes or approve submitted work. Unresolved disputes prevent milestone status changes. Deleting a project also removes its related agreements, invitations, milestones, issue records, evidence records, and uploaded files.
+
+Run the backend integration test from the repository root with:
+
+```bash
+npm --prefix backend test
+```
+
+The test uses a uniquely named disposable database on local MongoDB and drops it when complete. To use a different test MongoDB server, set `MONGODB_TEST_URI` to its connection URI; do not point this variable at a production database.
 
 ### 2. Frontend
 

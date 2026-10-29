@@ -1,8 +1,13 @@
+import { unlink } from "node:fs/promises";
 import mongoose from "mongoose";
+import Evidence from "../models/Evidence.js";
+import ChangeRequest from "../models/ChangeRequest.js";
+import Dispute from "../models/Dispute.js";
 import Agreement from "../models/Agreement.js";
 import Milestone from "../models/Milestone.js";
 import Project from "../models/Project.js";
 import ProjectInvitation from "../models/ProjectInvitation.js";
+import { uploadDirectory } from "../middleware/evidenceUpload.js";
 
 function membershipFilter(user) {
   return {
@@ -161,10 +166,18 @@ export async function deleteProject(req, res, next) {
     });
 
     if (!project) return res.status(404).json({ success: false, message: "Project not found." });
+    const milestoneIds = await Milestone.find({ projectId: project._id }).distinct("_id");
+    const evidence = await Evidence.find({ milestoneId: { $in: milestoneIds } }).select("+storedName");
+    await Promise.all(evidence.filter((item) => item.storedName).map(async (item) => {
+      await unlink(`${uploadDirectory}/${item.storedName}`);
+    }));
     await Promise.all([
       Agreement.deleteMany({ projectId: project._id }),
-      Milestone.deleteMany({ projectId: project._id }),
-      ProjectInvitation.deleteMany({ projectId: project._id })
+      ProjectInvitation.deleteMany({ projectId: project._id }),
+      ChangeRequest.deleteMany({ projectId: project._id }),
+      Dispute.deleteMany({ projectId: project._id }),
+      Evidence.deleteMany({ milestoneId: { $in: milestoneIds } }),
+      Milestone.deleteMany({ projectId: project._id })
     ]);
     await project.deleteOne();
     return res.json({ success: true, message: "Project deleted." });
