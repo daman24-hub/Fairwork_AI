@@ -1,3 +1,7 @@
+import AgreementGenerator from "./AgreementGenerator.jsx";
+import EscrowOverview from "./EscrowOverview.jsx";
+import EscrowPanel from "./EscrowPanel.jsx";
+
 export default function ProjectDetailsDialog(props) {
   const {
     detailProject,
@@ -20,6 +24,12 @@ export default function ProjectDetailsDialog(props) {
     projectWorkflow,
     loadingWorkflow,
     savingAgreement,
+    agreementBrief,
+    setAgreementBrief,
+    agreementAiConsent,
+    setAgreementAiConsent,
+    generatingAgreement,
+    generateAgreement,
     approveAgreement,
     agreementDraft,
     updateAgreementField,
@@ -30,6 +40,8 @@ export default function ProjectDetailsDialog(props) {
     submitEvidence,
     savingMilestone,
     updatingMilestoneId,
+    escrowActionId,
+    updateDemoEscrow,
     editMilestone,
     changeMilestoneStatus,
     milestoneDraft,
@@ -50,7 +62,8 @@ export default function ProjectDetailsDialog(props) {
     resolutionNotes,
     setResolutionNotes,
     updateDispute,
-    openEditProject
+    openEditProject,
+    startAgreementVersion
   } = props;
 
   return (
@@ -248,48 +261,75 @@ export default function ProjectDetailsDialog(props) {
                             </ul>
                           )}
                           <p className="workflow-note">Approved by both parties.</p>
+                          <AgreementGenerator
+                            brief={agreementBrief}
+                            consent={agreementAiConsent}
+                            generating={generatingAgreement}
+                            disabled={savingAgreement}
+                            onBriefChange={setAgreementBrief}
+                            onConsentChange={setAgreementAiConsent}
+                            onGenerate={generateAgreement}
+                          />
+                          <button
+                            className="button button-quiet workflow-action"
+                            onClick={startAgreementVersion}
+                            type="button"
+                          >
+                            Create a new agreement version
+                          </button>
                         </div>
                       ) : (
-                        <form className="workflow-form" onSubmit={saveAgreement}>
-                          <label className="field-label" htmlFor="agreement-terms">Agreement terms</label>
-                          <textarea
-                            className="form-input workflow-textarea"
-                            id="agreement-terms"
-                            maxLength={20000}
-                            name="terms"
-                            onChange={updateAgreementField}
-                            placeholder="Describe the agreed work, scope, and responsibilities."
-                            required
-                            rows={4}
-                            value={agreementDraft.terms}
+                        <>
+                          <AgreementGenerator
+                            brief={agreementBrief}
+                            consent={agreementAiConsent}
+                            generating={generatingAgreement}
+                            disabled={savingAgreement}
+                            onBriefChange={setAgreementBrief}
+                            onConsentChange={setAgreementAiConsent}
+                            onGenerate={generateAgreement}
                           />
-                          <label className="field-label" htmlFor="agreement-criteria">Acceptance criteria <span>(one per line)</span></label>
-                          <textarea
-                            className="form-input workflow-textarea"
-                            id="agreement-criteria"
-                            maxLength={15000}
-                            name="criteria"
-                            onChange={updateAgreementField}
-                            placeholder={"Homepage matches approved design\nMobile layout is responsive"}
-                            rows={3}
-                            value={agreementDraft.criteria}
-                          />
-                          <div className="workflow-form-actions">
-                            <button className="button button-primary" disabled={savingAgreement} type="submit">
-                              {savingAgreement ? "Saving…" : projectWorkflow?.agreement ? "Save draft" : "Create agreement draft"}
-                            </button>
-                            {projectWorkflow?.agreement?.status === "draft" && (
-                              <button
-                                className="button button-quiet"
-                                disabled={savingAgreement}
-                                onClick={submitAgreement}
-                                type="button"
-                              >
-                                Submit for approval
+                          <form className="workflow-form" onSubmit={saveAgreement}>
+                            <label className="field-label" htmlFor="agreement-terms">Agreement terms</label>
+                            <textarea
+                              className="form-input workflow-textarea"
+                              id="agreement-terms"
+                              maxLength={20000}
+                              name="terms"
+                              onChange={updateAgreementField}
+                              placeholder="Describe the agreed work, scope, and responsibilities."
+                              required
+                              rows={4}
+                              value={agreementDraft.terms}
+                            />
+                            <label className="field-label" htmlFor="agreement-criteria">Acceptance criteria <span>(one per line)</span></label>
+                            <textarea
+                              className="form-input workflow-textarea"
+                              id="agreement-criteria"
+                              maxLength={15000}
+                              name="criteria"
+                              onChange={updateAgreementField}
+                              placeholder={"Homepage matches approved design\nMobile layout is responsive"}
+                              rows={3}
+                              value={agreementDraft.criteria}
+                            />
+                            <div className="workflow-form-actions">
+                              <button className="button button-primary" disabled={savingAgreement} type="submit">
+                                {savingAgreement ? "Saving…" : projectWorkflow?.agreement ? "Save draft" : "Create agreement draft"}
                               </button>
-                            )}
-                          </div>
-                        </form>
+                              {projectWorkflow?.agreement?.status === "draft" && (
+                                <button
+                                  className="button button-quiet"
+                                  disabled={savingAgreement}
+                                  onClick={submitAgreement}
+                                  type="button"
+                                >
+                                  Submit for approval
+                                </button>
+                              )}
+                            </div>
+                          </form>
+                        </>
                       )}
                     </section>
 
@@ -344,6 +384,16 @@ export default function ProjectDetailsDialog(props) {
                                     </ul>
                                   )}
                                 </div>
+                                <EscrowPanel
+                                  busy={escrowActionId === milestone._id}
+                                  formatBudget={formatBudget}
+                                  formatDeadline={formatDeadline}
+                                  milestone={milestone}
+                                  agreementApproved={projectWorkflow?.agreement?.status === "approved" && detailProject.status === "active"}
+                                  onAction={(action) => updateDemoEscrow(milestone, action)}
+                                  role={user.role}
+                                  transactions={projectWorkflow.transactions || []}
+                                />
                                 {milestone.evidence?.length > 0 && (
                                   <div className="evidence-list">
                                     <h5>Submitted evidence</h5>
@@ -501,6 +551,12 @@ export default function ProjectDetailsDialog(props) {
                       </form>
                     </section>
                   </div>
+                  <EscrowOverview
+                    formatBudget={formatBudget}
+                    formatDeadline={formatDeadline}
+                    summary={projectWorkflow?.escrow}
+                    transactions={projectWorkflow?.transactions || []}
+                  />
                   <section className="issue-section" aria-labelledby="change-requests-heading">
                     <div className="workflow-section-heading">
                       <div>

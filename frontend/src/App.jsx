@@ -43,8 +43,12 @@ export default function App() {
   const [workflowMessage, setWorkflowMessage] = useState("");
   const [savingAgreement, setSavingAgreement] = useState(false);
   const [agreementDraft, setAgreementDraft] = useState({ terms: "", criteria: "" });
+  const [agreementBrief, setAgreementBrief] = useState("");
+  const [agreementAiConsent, setAgreementAiConsent] = useState(false);
+  const [generatingAgreement, setGeneratingAgreement] = useState(false);
   const [savingMilestone, setSavingMilestone] = useState(false);
   const [updatingMilestoneId, setUpdatingMilestoneId] = useState(null);
+  const [escrowActionId, setEscrowActionId] = useState(null);
   const [uploadingEvidenceId, setUploadingEvidenceId] = useState(null);
   const [milestoneDraft, setMilestoneDraft] = useState({
     title: "",
@@ -219,6 +223,9 @@ export default function App() {
     setProjectInvitations([]);
     setProjectIssues({ disputes: [], changeRequests: [] });
     setInvitationEmail("");
+    setAgreementBrief("");
+    setAgreementAiConsent(false);
+    setAgreementDraft({ terms: "", criteria: "" });
 
     const [projectResult, workflowResult, invitationsResult, issuesResult] = await Promise.allSettled([
       api.get(`/projects/${project._id}`),
@@ -237,8 +244,8 @@ export default function App() {
     }
 
     if (workflowResult.status === "fulfilled") {
-      const { agreement, milestones } = workflowResult.value.data;
-      setProjectWorkflow({ agreement, milestones });
+      const { agreement } = workflowResult.value.data;
+      setProjectWorkflow(workflowResult.value.data);
       setAgreementDraft({
         terms: agreement?.terms || "",
         criteria: agreement?.acceptanceCriteria?.join("\n") || ""
@@ -272,6 +279,8 @@ export default function App() {
     setDetailProject(null);
     setProjectDetailsError("");
     setProjectWorkflow(null);
+    setAgreementBrief("");
+    setAgreementAiConsent(false);
     setProjectInvitations([]);
     setProjectIssues({ disputes: [], changeRequests: [] });
     setWorkflowError("");
@@ -645,6 +654,43 @@ export default function App() {
     }
   }
 
+  async function generateAgreement() {
+    if (!detailProject) return;
+    setGeneratingAgreement(true);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const response = await api.post(`/projects/${detailProject._id}/agreements/generate-draft`, {
+        brief: agreementBrief.trim(),
+        consent: agreementAiConsent
+      });
+      setProjectWorkflow((current) => ({ ...current, agreement: response.data.agreement }));
+      setAgreementDraft({
+        terms: response.data.agreement.terms,
+        criteria: response.data.agreement.acceptanceCriteria.join("\n")
+      });
+      if (response.data.project) {
+        setDetailProject(response.data.project);
+        setProjects((current) => current.map((item) =>
+          item._id === response.data.project._id ? response.data.project : item
+        ));
+      }
+      setWorkflowMessage("AI draft generated. Review and edit every term before submitting it for approval.");
+    } catch (requestError) {
+      setWorkflowError(
+        requestError.response?.data?.message || "Could not generate an agreement draft. Try again."
+      );
+    } finally {
+      setGeneratingAgreement(false);
+    }
+  }
+
+  function startAgreementVersion() {
+    setAgreementDraft({ terms: "", criteria: "" });
+    setAgreementAiConsent(false);
+    setProjectWorkflow((current) => ({ ...current, agreement: null }));
+  }
+
   async function submitAgreement() {
     if (!detailProject || !projectWorkflow?.agreement) return;
     setSavingAgreement(true);
@@ -776,6 +822,43 @@ export default function App() {
       );
     } finally {
       setUpdatingMilestoneId(null);
+    }
+  }
+
+  async function updateDemoEscrow(milestone, action) {
+    if (!detailProject) return;
+    setEscrowActionId(milestone._id);
+    setWorkflowError("");
+    setWorkflowMessage("");
+    try {
+      const response = await api.post(
+        `/projects/${detailProject._id}/milestones/${milestone._id}/escrow/${action}`
+      );
+      setProjectWorkflow((current) => {
+        const transactions = [response.data.transaction, ...(current.transactions || [])];
+        const escrow = transactions.reduce((totals, transaction) => {
+          if (transaction.type === "funded_demo") totals.fundedMinor += transaction.amountMinor;
+          if (transaction.type === "released_demo") totals.releasedMinor += transaction.amountMinor;
+          if (transaction.type === "refunded_demo") totals.refundedMinor += transaction.amountMinor;
+          return totals;
+        }, { fundedMinor: 0, releasedMinor: 0, refundedMinor: 0 });
+        escrow.heldMinor = escrow.fundedMinor - escrow.releasedMinor - escrow.refundedMinor;
+        return {
+          ...current,
+          escrow,
+          transactions,
+          milestones: current.milestones.map((item) =>
+            item._id === milestone._id ? { ...item, ...response.data.milestone } : item
+          )
+        };
+      });
+      setWorkflowMessage(response.data.message);
+    } catch (requestError) {
+      setWorkflowError(
+        requestError.response?.data?.message || "Could not update demo escrow. Try again."
+      );
+    } finally {
+      setEscrowActionId(null);
     }
   }
 
@@ -1067,6 +1150,12 @@ export default function App() {
           projectWorkflow,
           loadingWorkflow,
           savingAgreement,
+          agreementBrief,
+          setAgreementBrief,
+          agreementAiConsent,
+          setAgreementAiConsent,
+          generatingAgreement,
+          generateAgreement,
           approveAgreement,
           agreementDraft,
           updateAgreementField,
@@ -1077,6 +1166,8 @@ export default function App() {
           submitEvidence,
           savingMilestone,
           updatingMilestoneId,
+          escrowActionId,
+          updateDemoEscrow,
           editMilestone,
           changeMilestoneStatus,
           milestoneDraft,
@@ -1097,7 +1188,8 @@ export default function App() {
           resolutionNotes,
           setResolutionNotes,
           updateDispute,
-          openEditProject
+          openEditProject,
+          startAgreementVersion
         }} />
       </main>
     );

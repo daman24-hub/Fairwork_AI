@@ -4,6 +4,7 @@ import Dispute from "../models/Dispute.js";
 import Evidence from "../models/Evidence.js";
 import Milestone from "../models/Milestone.js";
 import Project from "../models/Project.js";
+import Transaction from "../models/Transaction.js";
 
 async function findMemberProject(projectId, user) {
   if (!mongoose.isValidObjectId(projectId)) return null;
@@ -32,9 +33,10 @@ export async function getProjectWorkflow(req, res, next) {
     const project = await findMemberProject(req.params.projectId, req.user);
     if (!project) return res.status(404).json({ success: false, message: "Project not found." });
 
-    const [agreement, milestones] = await Promise.all([
+    const [agreement, milestones, transactions] = await Promise.all([
       Agreement.findOne({ projectId: project._id }).sort({ version: -1 }),
-      Milestone.find({ projectId: project._id }).sort({ createdAt: 1 })
+      Milestone.find({ projectId: project._id }).sort({ createdAt: 1 }),
+      Transaction.find({ projectId: project._id }).sort({ createdAt: -1 }).lean()
     ]);
 
     const evidence = await Evidence.find({
@@ -50,9 +52,19 @@ export async function getProjectWorkflow(req, res, next) {
       evidenceByMilestone.set(key, items);
     }
 
+    const escrow = transactions.reduce((totals, transaction) => {
+      if (transaction.type === "funded_demo") totals.fundedMinor += transaction.amountMinor;
+      if (transaction.type === "released_demo") totals.releasedMinor += transaction.amountMinor;
+      if (transaction.type === "refunded_demo") totals.refundedMinor += transaction.amountMinor;
+      return totals;
+    }, { fundedMinor: 0, releasedMinor: 0, refundedMinor: 0 });
+    escrow.heldMinor = escrow.fundedMinor - escrow.releasedMinor - escrow.refundedMinor;
+
     return res.json({
       success: true,
       agreement,
+      escrow,
+      transactions,
       milestones: milestones.map((milestone) => ({
         ...milestone.toObject(),
         evidence: evidenceByMilestone.get(String(milestone._id)) || []
@@ -102,6 +114,106 @@ export async function createAgreement(req, res, next) {
     await project.save();
 
     return res.status(201).json({ success: true, agreement });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function generateAgreementDraft(req, res, next) {
+  try {
+    const project = await findMemberProject(req.params.projectId, req.user);
+    if (!project) return res.status(404).json({ success: false, message: "Project not found." });
+    if (!project.clientId || !project.freelancerId) {
+      return res.status(409).json({ success: false, message: "Invite and add both project participants before generating an agreement." });
+    }
+
+    const brief = typeof req.body.brief === "string" ? req.body.brief.trim() : "";
+    if (req.body.consent !== true) {
+      return res.status(400).json({ success: false, message: "Confirm that your agreement brief may be sent to OpenAI before generating a draft." });
+    }
+    if (!brief || brief.length > 10000) {
+      return res.status(400).json({ success: false, message: "The agreement brief must be between 1 and 10000 characters." });
+    }
+
+    const latest = await Agreement.findOne({ projectId: project._id }).sort({ version: -1 });
+    if (latest && !["draft", "approved", "superseded"].includes(latest.status)) {
+      return res.status(409).json({ success: false, message: "The current agreement must be approved before generating a new version." });
+    }
+    const apiKey = process.env.AI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ success: false, message: "AI agreement generation is not configured. Set AI_API_KEY on the backend." });
+    }
+
+    let response;
+    try {
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json"
+        },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({
+          model: process.env.AI_MODEL || "gpt-4o-mini",
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: "Create a practical, plain-language freelance project agreement draft for human review, not legal advice. Return only a JSON object with a string property terms and an array of 3-10 concise string acceptanceCriteria. Include scope, deliverables, responsibilities, review/revision expectations, and payment terms only when supported by the project information. Do not invent amounts or dates."
+            },
+            {
+              role: "user",
+              content: brief
+            }
+          ]
+        })
+      });
+    } catch {
+      return res.status(502).json({ success: false, message: "Could not reach the AI agreement service. Try again." });
+    }
+    if (!response.ok) {
+      return res.status(502).json({ success: false, message: "The AI agreement service could not generate a draft. Try again." });
+    }
+
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content;
+    let generated;
+    try {
+      generated = JSON.parse(content);
+    } catch {
+      return res.status(502).json({ success: false, message: "The AI service returned an invalid agreement draft." });
+    }
+    if (!generated || typeof generated !== "object" || Array.isArray(generated)) {
+      return res.status(502).json({ success: false, message: "The AI service returned an invalid agreement draft." });
+    }
+    const terms = typeof generated.terms === "string" ? generated.terms.trim() : "";
+    const acceptanceCriteria = parseCriteria(generated.acceptanceCriteria);
+    if (!terms || terms.length > 20000 || !acceptanceCriteria || acceptanceCriteria.length < 1) {
+      return res.status(502).json({ success: false, message: "The AI service returned an incomplete agreement draft." });
+    }
+
+    let agreement;
+    if (latest?.status === "draft") {
+      latest.terms = terms;
+      latest.acceptanceCriteria = acceptanceCriteria;
+      agreement = await latest.save();
+    } else {
+      if (latest?.status === "approved") {
+        latest.status = "superseded";
+        await latest.save();
+      }
+      agreement = await Agreement.create({
+        projectId: project._id,
+        version: latest ? latest.version + 1 : 1,
+        terms,
+        acceptanceCriteria,
+        status: "draft"
+      });
+    }
+
+    project.status = "awaiting_agreement";
+    await project.save();
+    return res.status(201).json({ success: true, agreement, project });
   } catch (error) {
     return next(error);
   }
@@ -268,6 +380,9 @@ export async function updateMilestone(req, res, next) {
     if (!milestone) return res.status(404).json({ success: false, message: "Milestone not found." });
     if (milestone.status !== "pending") {
       return res.status(409).json({ success: false, message: "Only pending milestones can be edited." });
+    }
+    if (milestone.escrowStatus !== "not_funded") {
+      return res.status(409).json({ success: false, message: "A funded milestone cannot be edited." });
     }
 
     if (req.body.title !== undefined) {

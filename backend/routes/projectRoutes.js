@@ -10,6 +10,7 @@ import { authorizeRoles, protect } from "../middleware/authMiddleware.js";
 import {
   approveAgreement,
   createAgreement,
+  generateAgreementDraft,
   createMilestone,
   getProjectWorkflow,
   submitAgreement,
@@ -17,6 +18,11 @@ import {
   updateMilestone,
   updateMilestoneStatus
 } from "../controllers/projectWorkflowController.js";
+import {
+  fundMilestoneDemo,
+  refundMilestoneDemo,
+  releaseMilestoneDemo
+} from "../controllers/escrowController.js";
 import {
   cancelProjectInvitation,
   createProjectInvitation,
@@ -53,12 +59,16 @@ router.patch("/:id", updateProject);
 router.delete("/:id", deleteProject);
 router.get("/:projectId/workflow", getProjectWorkflow);
 router.post("/:projectId/agreements", createAgreement);
+router.post("/:projectId/agreements/generate-draft", generateAgreementDraft);
 router.patch("/:projectId/agreements/:agreementId", updateAgreement);
 router.post("/:projectId/agreements/:agreementId/submit", submitAgreement);
 router.post("/:projectId/agreements/:agreementId/approve", approveAgreement);
 router.post("/:projectId/milestones", createMilestone);
 router.patch("/:projectId/milestones/:milestoneId", updateMilestone);
 router.patch("/:projectId/milestones/:milestoneId/status", updateMilestoneStatus);
+router.post("/:projectId/milestones/:milestoneId/escrow/fund", fundMilestoneDemo);
+router.post("/:projectId/milestones/:milestoneId/escrow/release", releaseMilestoneDemo);
+router.post("/:projectId/milestones/:milestoneId/escrow/refund", refundMilestoneDemo);
 router.get("/:projectId/milestones/:milestoneId/evidence", listMilestoneEvidence);
 router.post("/:projectId/milestones/:milestoneId/evidence", handleEvidenceUpload, submitMilestoneEvidence);
 router.get("/:projectId/milestones/:milestoneId/evidence/:evidenceId/file", downloadEvidenceFile);

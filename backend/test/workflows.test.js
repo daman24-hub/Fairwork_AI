@@ -9,6 +9,7 @@ import Dispute from "../models/Dispute.js";
 import Evidence from "../models/Evidence.js";
 import Milestone from "../models/Milestone.js";
 import Project from "../models/Project.js";
+import Transaction from "../models/Transaction.js";
 
 const runId = `${Date.now()}_${process.pid}`;
 const databaseName = `fairwork_test_${runId}`;
@@ -97,12 +98,52 @@ test("two participants complete the project, evidence, dispute, and change-reque
   response = await request(`/projects/invitations/${invitation._id}/accept`, jsonRequest({}, freelancer.token));
   assert.equal(response.status, 200, await response.clone().text());
 
-  response = await request(`/projects/${projectId}/agreements`, jsonRequest({
-    terms: "Deliver the agreed project work.",
-    acceptanceCriteria: ["Both parties approve."]
+  const previousAiKey = process.env.AI_API_KEY;
+  response = await request(`/projects/${projectId}/agreements/generate-draft`, jsonRequest({
+    brief: "Include one review round."
   }, client.token));
+  assert.equal(response.status, 400);
+  delete process.env.AI_API_KEY;
+  response = await request(`/projects/${projectId}/agreements/generate-draft`, jsonRequest({
+    brief: "Include one review round.",
+    consent: true
+  }, client.token));
+  assert.equal(response.status, 503);
+
+  const originalFetch = globalThis.fetch;
+  process.env.AI_API_KEY = "test-ai-key";
+  globalThis.fetch = async (url, options) => {
+    if (url !== "https://api.openai.com/v1/chat/completions") {
+      return originalFetch(url, options);
+    }
+    assert.equal(options.headers.authorization, "Bearer test-ai-key");
+    const prompt = JSON.parse(options.body);
+    assert.equal(prompt.messages[1].content, "Include one review round.");
+    assert.equal(prompt.messages.length, 2);
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            terms: "Deliver the agreed project work.",
+            acceptanceCriteria: ["Delivery matches the brief."]
+          })
+        }
+      }]
+    }), { status: 200 });
+  };
+  try {
+    response = await request(`/projects/${projectId}/agreements/generate-draft`, jsonRequest({
+      brief: "Include one review round.",
+      consent: true
+    }, client.token));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousAiKey === undefined) delete process.env.AI_API_KEY;
+    else process.env.AI_API_KEY = previousAiKey;
+  }
   assert.equal(response.status, 201, await response.clone().text());
   const agreement = (await response.json()).agreement;
+  assert.equal(agreement.terms, "Deliver the agreed project work.");
   response = await request(`/projects/${projectId}/agreements/${agreement._id}/submit`, jsonRequest({}, client.token));
   assert.equal(response.status, 200, await response.clone().text());
   response = await request(`/projects/${projectId}/agreements/${agreement._id}/approve`, jsonRequest({}, client.token));
@@ -118,6 +159,12 @@ test("two participants complete the project, evidence, dispute, and change-reque
   }, client.token));
   assert.equal(response.status, 201, await response.clone().text());
   milestoneId = (await response.json()).milestone._id;
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/fund`, jsonRequest({}, freelancer.token));
+  assert.equal(response.status, 403);
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/fund`, jsonRequest({}, client.token));
+  assert.equal(response.status, 201, await response.clone().text());
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/fund`, jsonRequest({}, client.token));
+  assert.equal(response.status, 409);
   response = await request(`/projects/${projectId}/milestones/${milestoneId}/status`, jsonRequest({
     status: "in_progress"
   }, freelancer.token, "PATCH"));
@@ -211,6 +258,38 @@ test("two participants complete the project, evidence, dispute, and change-reque
   assert.equal(response.status, 200, await response.clone().text());
   assert.equal((await response.json()).changeRequest.status, "withdrawn");
 
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/status`, jsonRequest({
+    status: "submitted"
+  }, freelancer.token, "PATCH"));
+  assert.equal(response.status, 200, await response.clone().text());
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/status`, jsonRequest({
+    status: "approved"
+  }, client.token, "PATCH"));
+  assert.equal(response.status, 200, await response.clone().text());
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/release`, jsonRequest({}, freelancer.token));
+  assert.equal(response.status, 403);
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/release`, jsonRequest({}, client.token));
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal((await response.json()).milestone.status, "paid");
+
+  response = await request(`/projects/${projectId}/milestones`, jsonRequest({
+    title: "Optional milestone",
+    amountMinor: 25000
+  }, client.token));
+  assert.equal(response.status, 201, await response.clone().text());
+  const refundableMilestoneId = (await response.json()).milestone._id;
+  response = await request(`/projects/${projectId}/milestones/${refundableMilestoneId}/escrow/fund`, jsonRequest({}, client.token));
+  assert.equal(response.status, 201, await response.clone().text());
+  response = await request(`/projects/${projectId}/milestones/${refundableMilestoneId}/escrow/refund`, jsonRequest({}, client.token));
+  assert.equal(response.status, 200, await response.clone().text());
+  response = await request(`/projects/${projectId}/workflow`, { headers: { authorization: `Bearer ${client.token}` } });
+  assert.equal(response.status, 200);
+  const escrowSummary = (await response.json()).escrow;
+  assert.equal(escrowSummary.fundedMinor, 65000);
+  assert.equal(escrowSummary.releasedMinor, 40000);
+  assert.equal(escrowSummary.refundedMinor, 25000);
+  assert.equal(escrowSummary.heldMinor, 0);
+
   response = await request(`/projects/${projectId}/issues`, {
     headers: { authorization: `Bearer ${outsider.token}` }
   });
@@ -224,5 +303,6 @@ test("two participants complete the project, evidence, dispute, and change-reque
   assert.equal(await Evidence.countDocuments({ milestoneId }), 0);
   assert.equal(await Dispute.countDocuments({ projectId }), 0);
   assert.equal(await ChangeRequest.countDocuments({ projectId }), 0);
+  assert.equal(await Transaction.countDocuments({ projectId }), 0);
   await assert.rejects(access(`${uploadDirectory}/${storedName}`));
 });

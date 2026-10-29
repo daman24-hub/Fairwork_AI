@@ -7,6 +7,7 @@ import Agreement from "../models/Agreement.js";
 import Milestone from "../models/Milestone.js";
 import Project from "../models/Project.js";
 import ProjectInvitation from "../models/ProjectInvitation.js";
+import Transaction from "../models/Transaction.js";
 import { uploadDirectory } from "../middleware/evidenceUpload.js";
 
 function membershipFilter(user) {
@@ -176,6 +177,7 @@ export async function deleteProject(req, res, next) {
       ProjectInvitation.deleteMany({ projectId: project._id }),
       ChangeRequest.deleteMany({ projectId: project._id }),
       Dispute.deleteMany({ projectId: project._id }),
+      Transaction.deleteMany({ projectId: project._id }),
       Evidence.deleteMany({ milestoneId: { $in: milestoneIds } }),
       Milestone.deleteMany({ projectId: project._id })
     ]);
