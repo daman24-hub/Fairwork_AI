@@ -3,6 +3,7 @@ import api, { clearAuthToken, getAuthToken, saveAuthToken } from "./services/api
 import AuthScreen from "./components/AuthScreen.jsx";
 import ProjectCard from "./components/ProjectCard.jsx";
 import ProjectDetailsDialog from "./components/ProjectDetailsDialog.jsx";
+import WalletPanel from "./components/WalletPanel.jsx";
 
 export default function App() {
   const [mode, setMode] = useState("login");
@@ -195,6 +196,23 @@ export default function App() {
     closeProjectDetails();
     setMode("login");
     setForm({ name: "", email: "", password: "", role: "client" });
+  }
+
+  function handleWalletLinked(walletAddress) {
+    setUser((current) => ({ ...current, walletAddress }));
+    setProjectWorkflow((current) => current ? ({
+      ...current,
+      wallets: { ...current.wallets, [user.role]: walletAddress }
+    }) : current);
+  }
+
+  function recordBlockchainDeal(milestoneId, blockchainEscrow) {
+    setProjectWorkflow((current) => current ? ({
+      ...current,
+      milestones: current.milestones.map((milestone) =>
+        milestone._id === milestoneId ? { ...milestone, blockchainEscrow } : milestone
+      )
+    }) : current);
   }
 
   function resetProjectForm() {
@@ -939,6 +957,7 @@ export default function App() {
           </div>
         </header>
         <div className="workspace-content">
+          <WalletPanel onLinked={handleWalletLinked} user={user} />
           <section className="workspace-heading">
             <div>
               <p className="eyebrow">YOUR WORKSPACE</p>
@@ -1189,7 +1208,8 @@ export default function App() {
           setResolutionNotes,
           updateDispute,
           openEditProject,
-          startAgreementVersion
+          startAgreementVersion,
+          recordBlockchainDeal
         }} />
       </main>
     );

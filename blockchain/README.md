@@ -21,10 +21,10 @@ npx hardhat test
 npm run deploy:sepolia
 ```
 
-The deploy script prints the deployed contract address. Save that address for your frontend integration.
+The deploy script prints the deployed contract address. Set it as `SEPOLIA_ESCROW_ADDRESS` in `backend/.env`; the frontend retrieves it from the authenticated backend.
 
 ## Demo flow
-- Client calls `createDeal(freelancerAddress, agreementHash)` and attaches testnet ETH.
+- Client calls `createDeal(freelancerAddress, agreementHash, milestoneReference)` and attaches testnet ETH. The unique milestone reference prevents duplicate deals for the same app milestone.
 - Client calls `release(dealId)` after accepting the milestone.
 - Either party can call `raiseDispute(dealId)` to block the ordinary release/refund functions.
 - `resolveDispute(dealId, payFreelancer)` is intentionally unsafe for production: either party can pick the outcome. It is only present to demonstrate a flow. Remove it or replace it with an agreed arbitrator/multisig process before any real use.

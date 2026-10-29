@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, unlink } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import mongoose from "mongoose";
+import { Wallet } from "ethers";
 import app from "../app.js";
 import { uploadDirectory } from "../middleware/evidenceUpload.js";
 import ChangeRequest from "../models/ChangeRequest.js";
@@ -40,6 +41,10 @@ function jsonRequest(body, token, method = "POST") {
     },
     body: JSON.stringify(body)
   };
+}
+
+function authHeaders(token) {
+  return { authorization: ["Bearer", token].join(" ") };
 }
 
 async function createUser(role) {
@@ -83,7 +88,56 @@ test("two participants complete the project, evidence, dispute, and change-reque
   freelancer = await createUser("freelancer");
   outsider = await createUser("client");
 
-  let response = await request("/projects", jsonRequest({
+  const clientWallet = Wallet.createRandom();
+  let response = await request("/auth/wallet/challenge", {
+    headers: { authorization: `Bearer ${client.token}` }
+  });
+  assert.equal(response.status, 200);
+  const clientChallenge = (await response.json()).challenge;
+  response = await request("/auth/wallet/link", jsonRequest({
+    address: clientWallet.address,
+    signature: await clientWallet.signMessage(clientChallenge)
+  }, client.token));
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal((await response.json()).walletAddress, clientWallet.address.toLowerCase());
+  const replacementWallet = Wallet.createRandom();
+  response = await request("/auth/wallet/challenge", {
+    headers: authHeaders(client.token)
+  });
+  assert.equal(response.status, 200);
+  const replacementChallenge = (await response.json()).challenge;
+  response = await request("/auth/wallet/link", jsonRequest({
+    address: replacementWallet.address,
+    signature: await replacementWallet.signMessage(replacementChallenge)
+  }, client.token));
+  assert.equal(response.status, 409);
+
+  const freelancerWallet = Wallet.createRandom();
+  response = await request("/auth/wallet/challenge", {
+    headers: { authorization: `Bearer ${freelancer.token}` }
+  });
+  assert.equal(response.status, 200);
+  const freelancerChallenge = (await response.json()).challenge;
+  const freelancerSignature = await freelancerWallet.signMessage(freelancerChallenge);
+  response = await request("/auth/wallet/link", jsonRequest({
+    address: freelancerWallet.address,
+    signature: freelancerSignature
+  }, freelancer.token));
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal((await response.json()).walletAddress, freelancerWallet.address.toLowerCase());
+
+  response = await request("/auth/wallet/challenge", {
+    headers: { authorization: `Bearer ${outsider.token}` }
+  });
+  assert.equal(response.status, 200);
+  const outsiderChallenge = (await response.json()).challenge;
+  response = await request("/auth/wallet/link", jsonRequest({
+    address: freelancerWallet.address,
+    signature: await freelancerWallet.signMessage(outsiderChallenge)
+  }, outsider.token));
+  assert.equal(response.status, 409);
+
+  response = await request("/projects", jsonRequest({
     title: "Workflow integration test",
     budgetPaise: 100000
   }, client.token));
@@ -159,6 +213,11 @@ test("two participants complete the project, evidence, dispute, and change-reque
   }, client.token));
   assert.equal(response.status, 201, await response.clone().text());
   milestoneId = (await response.json()).milestone._id;
+  response = await request(`/projects/${projectId}/milestones/${milestoneId}/blockchain`, jsonRequest({
+    dealId: "1",
+    transactionHash: `0x${"a".repeat(64)}`
+  }, freelancer.token));
+  assert.equal(response.status, 403);
   response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/fund`, jsonRequest({}, freelancer.token));
   assert.equal(response.status, 403);
   response = await request(`/projects/${projectId}/milestones/${milestoneId}/escrow/fund`, jsonRequest({}, client.token));
@@ -284,11 +343,30 @@ test("two participants complete the project, evidence, dispute, and change-reque
   assert.equal(response.status, 200, await response.clone().text());
   response = await request(`/projects/${projectId}/workflow`, { headers: { authorization: `Bearer ${client.token}` } });
   assert.equal(response.status, 200);
-  const escrowSummary = (await response.json()).escrow;
+  const workflow = await response.json();
+  assert.equal(workflow.wallets.client, clientWallet.address.toLowerCase());
+  assert.equal(workflow.wallets.freelancer, freelancerWallet.address.toLowerCase());
+  const escrowSummary = workflow.escrow;
   assert.equal(escrowSummary.fundedMinor, 65000);
   assert.equal(escrowSummary.releasedMinor, 40000);
   assert.equal(escrowSummary.refundedMinor, 25000);
   assert.equal(escrowSummary.heldMinor, 0);
+
+  await Milestone.updateOne({ _id: milestoneId }, {
+    $set: {
+      blockchainEscrow: {
+        chainId: 11155111,
+        contractAddress: `0x${"1".repeat(40)}`,
+        dealId: "1",
+        transactionHash: `0x${"a".repeat(64)}`,
+        amountWei: "1",
+        agreementHash: `0x${"b".repeat(64)}`
+      }
+    }
+  });
+  response = await request(`/projects/${projectId}`, jsonRequest({}, client.token, "DELETE"));
+  assert.equal(response.status, 409);
+  await Milestone.updateOne({ _id: milestoneId }, { $unset: { blockchainEscrow: "" } });
 
   response = await request(`/projects/${projectId}/issues`, {
     headers: { authorization: `Bearer ${outsider.token}` }

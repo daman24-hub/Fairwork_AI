@@ -12,13 +12,22 @@ contract FairWorkEscrow {
         uint256 amount;
         Status status;
         bytes32 agreementHash;
+        bytes32 milestoneReference;
         uint64 createdAt;
     }
 
     uint256 public nextDealId = 1;
     mapping(uint256 => Deal) public deals;
+    mapping(bytes32 => bool) public usedMilestoneReferences;
 
-    event DealCreated(uint256 indexed dealId, address indexed client, address indexed freelancer, uint256 amount, bytes32 agreementHash);
+    event DealCreated(
+        uint256 indexed dealId,
+        address indexed client,
+        address indexed freelancer,
+        uint256 amount,
+        bytes32 agreementHash,
+        bytes32 milestoneReference
+    );
     event FundsReleased(uint256 indexed dealId, address indexed freelancer, uint256 amount);
     event FundsRefunded(uint256 indexed dealId, address indexed client, uint256 amount);
     event DisputeRaised(uint256 indexed dealId, address indexed raisedBy);
@@ -41,13 +50,17 @@ contract FairWorkEscrow {
     /// @notice Client creates a deal and deposits native testnet currency.
     /// @param freelancer Recipient wallet.
     /// @param agreementHash Hash of the final agreement; never store private agreement text on-chain.
-    function createDeal(address payable freelancer, bytes32 agreementHash)
+    /// @param milestoneReference Unique hash for the app milestone to prevent duplicate deals.
+    function createDeal(address payable freelancer, bytes32 agreementHash, bytes32 milestoneReference)
         external payable returns (uint256 dealId)
     {
         require(freelancer != address(0), "Invalid freelancer");
         require(freelancer != msg.sender, "Parties must differ");
         require(msg.value > 0, "Deposit required");
         require(agreementHash != bytes32(0), "Agreement hash required");
+        require(milestoneReference != bytes32(0), "Milestone reference required");
+        require(!usedMilestoneReferences[milestoneReference], "Milestone already funded");
+        usedMilestoneReferences[milestoneReference] = true;
 
         dealId = nextDealId++;
         deals[dealId] = Deal({
@@ -56,9 +69,10 @@ contract FairWorkEscrow {
             amount: msg.value,
             status: Status.Funded,
             agreementHash: agreementHash,
+            milestoneReference: milestoneReference,
             createdAt: uint64(block.timestamp)
         });
-        emit DealCreated(dealId, msg.sender, freelancer, msg.value, agreementHash);
+        emit DealCreated(dealId, msg.sender, freelancer, msg.value, agreementHash, milestoneReference);
     }
 
     /// @notice Client approves delivery and releases funds to freelancer.

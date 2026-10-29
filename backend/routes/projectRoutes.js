@@ -24,6 +24,10 @@ import {
   releaseMilestoneDemo
 } from "../controllers/escrowController.js";
 import {
+  getSepoliaEscrowConfiguration,
+  recordSepoliaDeal
+} from "../controllers/blockchainEscrowController.js";
+import {
   cancelProjectInvitation,
   createProjectInvitation,
   listMyInvitations,
@@ -49,6 +53,7 @@ const router = Router();
 router.use(protect, authorizeRoles("client", "freelancer"));
 router.get("/invitations/pending", listMyInvitations);
 router.post("/invitations/:invitationId/:action", respondToProjectInvitation);
+router.get("/blockchain/sepolia/config", getSepoliaEscrowConfiguration);
 router.get("/:projectId/invitations", listProjectInvitations);
 router.post("/:projectId/invitations", createProjectInvitation);
 router.delete("/:projectId/invitations/:invitationId", cancelProjectInvitation);
@@ -66,6 +71,7 @@ router.post("/:projectId/agreements/:agreementId/approve", approveAgreement);
 router.post("/:projectId/milestones", createMilestone);
 router.patch("/:projectId/milestones/:milestoneId", updateMilestone);
 router.patch("/:projectId/milestones/:milestoneId/status", updateMilestoneStatus);
+router.post("/:projectId/milestones/:milestoneId/blockchain", recordSepoliaDeal);
 router.post("/:projectId/milestones/:milestoneId/escrow/fund", fundMilestoneDemo);
 router.post("/:projectId/milestones/:milestoneId/escrow/release", releaseMilestoneDemo);
 router.post("/:projectId/milestones/:milestoneId/escrow/refund", refundMilestoneDemo);

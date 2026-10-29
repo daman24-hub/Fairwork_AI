@@ -167,6 +167,16 @@ export async function deleteProject(req, res, next) {
     });
 
     if (!project) return res.status(404).json({ success: false, message: "Project not found." });
+    const hasBlockchainDeal = await Milestone.exists({
+      projectId: project._id,
+      "blockchainEscrow.dealId": { $exists: true }
+    });
+    if (hasBlockchainDeal) {
+      return res.status(409).json({
+        success: false,
+        message: "Projects linked to blockchain escrow deals cannot be deleted."
+      });
+    }
     const milestoneIds = await Milestone.find({ projectId: project._id }).distinct("_id");
     const evidence = await Evidence.find({ milestoneId: { $in: milestoneIds } }).select("+storedName");
     await Promise.all(evidence.filter((item) => item.storedName).map(async (item) => {

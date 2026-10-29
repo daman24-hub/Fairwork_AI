@@ -503,6 +503,55 @@ a {
   padding: 58px 0 80px;
 }
 
+.wallet-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  padding: 14px 18px;
+  border: 1px solid #e5e9e1;
+  border-radius: 14px;
+  background: #ffffffc9;
+}
+
+.wallet-panel > div {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wallet-panel strong {
+  color: #485149;
+  font-size: 0.8rem;
+}
+
+.wallet-panel span {
+  overflow: hidden;
+  color: #818a81;
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+}
+
+.wallet-panel .button {
+  min-height: 38px;
+}
+
+.wallet-verified {
+  padding: 6px 9px;
+  border-radius: 20px;
+  background: #e9efe6;
+  color: #66836d !important;
+  font-size: 0.7rem !important;
+  font-weight: 700;
+}
+
+.wallet-error {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
 .workspace-heading {
   display: flex;
   align-items: flex-end;
@@ -1378,6 +1427,79 @@ a {
   background: #fbfcf9;
 }
 
+.blockchain-escrow {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #dfe8df;
+  border-radius: 11px;
+  background: #f7faf6;
+}
+
+.blockchain-escrow .workflow-section-heading {
+  margin: 0;
+}
+
+.blockchain-escrow h4 {
+  margin: 0;
+  color: #485149;
+  font-size: 0.86rem;
+}
+
+.blockchain-escrow .workflow-note {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.blockchain-create {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.blockchain-create .field-label {
+  flex: 1;
+  margin: 0;
+}
+
+.blockchain-create .form-input {
+  margin-top: 6px;
+}
+
+.blockchain-create .button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  font-size: 0.75rem;
+}
+
+.blockchain-deal-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #687368;
+  font-size: 0.76rem;
+}
+
+.blockchain-deal-info p {
+  margin: 0;
+}
+
+.blockchain-deal-info a {
+  color: #66836d;
+  font-weight: 700;
+}
+
+.blockchain-escrow .issue-actions {
+  margin-top: 0;
+}
+
+.blockchain-escrow > .button {
+  justify-self: start;
+}
+
 .milestone-escrow-heading,
 .milestone-escrow-heading > div {
   display: flex;
@@ -1665,6 +1787,11 @@ a {
 
   .incoming-invitation {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .blockchain-create {
+    align-items: stretch;
     flex-direction: column;
   }
 }

@@ -10,11 +10,12 @@ describe("FairWorkEscrow", function () {
     return { escrow, client, freelancer, outsider };
   }
   const hash = () => ethers.id("fairwork-agreement-v1");
+  const reference = (value = "fairwork-milestone-1") => ethers.id(value);
 
   it("creates a funded deal", async function () {
     const { escrow, client, freelancer } = await setup();
     const amount = ethers.parseEther("0.1");
-    await expect(escrow.connect(client).createDeal(freelancer.address, hash(), { value: amount }))
+    await expect(escrow.connect(client).createDeal(freelancer.address, hash(), reference(), { value: amount }))
       .to.emit(escrow, "DealCreated");
     const deal = await escrow.getDeal(1);
     expect(deal.client).to.equal(client.address);
@@ -26,7 +27,7 @@ describe("FairWorkEscrow", function () {
   it("releases funds to freelancer when client approves", async function () {
     const { escrow, client, freelancer } = await setup();
     const amount = ethers.parseEther("0.1");
-    await escrow.connect(client).createDeal(freelancer.address, hash(), { value: amount });
+    await escrow.connect(client).createDeal(freelancer.address, hash(), reference(), { value: amount });
     const before = await ethers.provider.getBalance(freelancer.address);
     await expect(escrow.connect(client).release(1)).to.emit(escrow, "FundsReleased");
     const after = await ethers.provider.getBalance(freelancer.address);
@@ -36,13 +37,13 @@ describe("FairWorkEscrow", function () {
 
   it("prevents a third party from releasing funds", async function () {
     const { escrow, client, freelancer, outsider } = await setup();
-    await escrow.connect(client).createDeal(freelancer.address, hash(), { value: 1000n });
+    await escrow.connect(client).createDeal(freelancer.address, hash(), reference(), { value: 1000n });
     await expect(escrow.connect(outsider).release(1)).to.be.revertedWith("Only client");
   });
 
   it("allows a party to dispute and blocks normal release", async function () {
     const { escrow, client, freelancer } = await setup();
-    await escrow.connect(client).createDeal(freelancer.address, hash(), { value: 1000n });
+    await escrow.connect(client).createDeal(freelancer.address, hash(), reference(), { value: 1000n });
     await expect(escrow.connect(freelancer).raiseDispute(1)).to.emit(escrow, "DisputeRaised");
     await expect(escrow.connect(client).release(1)).to.be.revertedWith("Deal is not funded");
   });
@@ -50,7 +51,7 @@ describe("FairWorkEscrow", function () {
   it("refunds client when no dispute exists", async function () {
     const { escrow, client, freelancer } = await setup();
     const amount = ethers.parseEther("0.05");
-    await escrow.connect(client).createDeal(freelancer.address, hash(), { value: amount });
+    await escrow.connect(client).createDeal(freelancer.address, hash(), reference(), { value: amount });
     const before = await ethers.provider.getBalance(client.address);
     const tx = await escrow.connect(client).refund(1);
     const receipt = await tx.wait();
@@ -58,5 +59,14 @@ describe("FairWorkEscrow", function () {
     const after = await ethers.provider.getBalance(client.address);
     expect(after + gas - before).to.equal(amount);
     expect((await escrow.getDeal(1)).status).to.equal(2);
+  });
+
+  it("prevents funding the same milestone twice", async function () {
+    const { escrow, client, freelancer } = await setup();
+    const milestoneReference = reference();
+    await escrow.connect(client).createDeal(freelancer.address, hash(), milestoneReference, { value: 1000n });
+    await expect(
+      escrow.connect(client).createDeal(freelancer.address, hash(), milestoneReference, { value: 1000n })
+    ).to.be.revertedWith("Milestone already funded");
   });
 });

@@ -16,6 +16,14 @@ const milestoneSchema = new mongoose.Schema({
     type: String,
     enum: ["not_funded", "funded", "released", "refunded"],
     default: "not_funded"
+  },
+  blockchainEscrow: {
+    chainId: Number,
+    contractAddress: String,
+    dealId: String,
+    transactionHash: String,
+    amountWei: String,
+    agreementHash: String
   }
 }, { timestamps: true });
 

@@ -1,6 +1,9 @@
+import { lazy, Suspense } from "react";
 import AgreementGenerator from "./AgreementGenerator.jsx";
 import EscrowOverview from "./EscrowOverview.jsx";
 import EscrowPanel from "./EscrowPanel.jsx";
+
+const BlockchainEscrowPanel = lazy(() => import("./BlockchainEscrowPanel.jsx"));
 
 export default function ProjectDetailsDialog(props) {
   const {
@@ -63,7 +66,8 @@ export default function ProjectDetailsDialog(props) {
     setResolutionNotes,
     updateDispute,
     openEditProject,
-    startAgreementVersion
+    startAgreementVersion,
+    recordBlockchainDeal
   } = props;
 
   return (
@@ -394,6 +398,17 @@ export default function ProjectDetailsDialog(props) {
                                   role={user.role}
                                   transactions={projectWorkflow.transactions || []}
                                 />
+                                <Suspense fallback={<p className="workflow-note">Loading blockchain escrow…</p>}>
+                                  <BlockchainEscrowPanel
+                                    agreement={projectWorkflow?.agreement}
+                                    linkedWallet={user.walletAddress}
+                                    milestone={milestone}
+                                    onRecordDeal={recordBlockchainDeal}
+                                    projectId={detailProject._id}
+                                    role={user.role}
+                                    wallets={projectWorkflow?.wallets}
+                                  />
+                                </Suspense>
                                 {milestone.evidence?.length > 0 && (
                                   <div className="evidence-list">
                                     <h5>Submitted evidence</h5>

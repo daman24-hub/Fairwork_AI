@@ -5,6 +5,7 @@ import Evidence from "../models/Evidence.js";
 import Milestone from "../models/Milestone.js";
 import Project from "../models/Project.js";
 import Transaction from "../models/Transaction.js";
+import User from "../models/User.js";
 
 async function findMemberProject(projectId, user) {
   if (!mongoose.isValidObjectId(projectId)) return null;
@@ -33,10 +34,12 @@ export async function getProjectWorkflow(req, res, next) {
     const project = await findMemberProject(req.params.projectId, req.user);
     if (!project) return res.status(404).json({ success: false, message: "Project not found." });
 
-    const [agreement, milestones, transactions] = await Promise.all([
+    const [agreement, milestones, transactions, client, freelancer] = await Promise.all([
       Agreement.findOne({ projectId: project._id }).sort({ version: -1 }),
       Milestone.find({ projectId: project._id }).sort({ createdAt: 1 }),
-      Transaction.find({ projectId: project._id }).sort({ createdAt: -1 }).lean()
+      Transaction.find({ projectId: project._id }).sort({ createdAt: -1 }).lean(),
+      User.findById(project.clientId).select("walletAddress"),
+      User.findById(project.freelancerId).select("walletAddress")
     ]);
 
     const evidence = await Evidence.find({
@@ -63,6 +66,10 @@ export async function getProjectWorkflow(req, res, next) {
     return res.json({
       success: true,
       agreement,
+      wallets: {
+        client: client?.walletAddress || null,
+        freelancer: freelancer?.walletAddress || null
+      },
       escrow,
       transactions,
       milestones: milestones.map((milestone) => ({
