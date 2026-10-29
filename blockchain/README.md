@@ -1,0 +1,1 @@
+Optional extension: implement FairWorkEscrow.sol and test it with Hardhat on a test network. Do not deploy with real funds for the hackathon MVP. Define and test refund, dispute, timeout, and authorization behavior before any testnet demo.
