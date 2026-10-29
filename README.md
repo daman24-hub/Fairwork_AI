@@ -29,6 +29,20 @@ npm run dev
 ```
 
 Set `MONGODB_URI` in `backend/.env`. The API starts on port 5000.
+Set `JWT_SECRET` to a unique random value of at least 32 characters before starting the API.
+
+The backend currently provides:
+
+- `POST /api/auth/register` and `POST /api/auth/login` for client/freelancer accounts
+- `GET /api/auth/me` for the authenticated account
+- Authenticated project list, create, read, update, and delete endpoints under `/api/projects`
+- Project budgets as whole-number `budgetPaise` values and optional ISO-8601 `deadline` values
+- Project invitations for adding one registered participant in the opposite role
+- Project agreement drafts, submission, and approval, plus milestone creation and status updates
+
+Send project API requests with `Authorization: Bearer <token>`. Users can access only their own projects; only the project's creator can delete it.
+Agreement approval becomes final only after both project roles approve. Milestones store amounts as whole-number paise; freelancers can advance delivery and clients can approve submitted work or request changes.
+Project creators can invite a registered account using `POST /api/projects/:projectId/invitations` with `{ "email": "..." }`. Recipients can list invitations at `GET /api/projects/invitations/pending`, then accept or decline using `POST /api/projects/invitations/:invitationId/accept` or `/decline`. Only the invited account can respond; acceptance assigns the counterpart role on the project.
 
 ### 2. Frontend
 

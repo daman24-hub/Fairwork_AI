@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import healthRoutes from "./routes/healthRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -13,6 +14,7 @@ app.use(cors({
 app.use(express.json({ limit: "1mb" }));
 
 app.use("/api/health", healthRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 
 app.use((req, res) => {
